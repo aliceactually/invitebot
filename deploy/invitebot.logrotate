@@ -1,0 +1,8 @@
+/var/log/invitebot/*.log /var/log/invitebot/*.err {
+    weekly
+    rotate 8
+    compress
+    missingok
+    notifempty
+    copytruncate
+}

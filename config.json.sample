@@ -1,0 +1,15 @@
+{
+  "cleanupTimer": 15,
+  "defaultDuration": 60,
+  "defaultUses": 1,
+  "foreverDuration": 30,
+  "debug": false,
+  "database": "database.sqlite3",
+  "overlayDirectory": "overlays",
+  "fallbackDomain": "discord.gg",
+  "captionFont": "Courier New",
+  "devGuild": "",
+  "discord": {
+    "token": "<Discord Bot Token>"
+  }
+}

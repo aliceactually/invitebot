@@ -1,0 +1,37 @@
+[Unit]
+Description=Generates Discord invites
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=invitebot
+Group=invitebot
+WorkingDirectory=/opt/invitebot
+ExecStart=/opt/invitebot/invitebot
+
+# Pin the single-file native-library extraction path somewhere predictable
+# rather than the service user's $HOME (which may not exist).
+Environment=DOTNET_BUNDLE_EXTRACT_BASE_DIR=/var/cache/invitebot/bundle
+
+# systemd creates and owns these directories as the service user, so no
+# manual mkdir/chown is needed. The structured logger already includes
+# timestamps and severity, so plain files are used instead of journald.
+LogsDirectory=invitebot
+LogsDirectoryMode=0750
+CacheDirectory=invitebot/bundle
+CacheDirectoryMode=0750
+StandardOutput=append:/var/log/invitebot/invitebot.log
+StandardError=append:/var/log/invitebot/invitebot.err
+
+# The bot's CancelKeyPress handler responds to SIGINT, not the systemd
+# default SIGTERM; without this, `systemctl stop` would hard-kill it
+# mid-cleanup. 30s is plenty for the cleanup loop to drain.
+KillSignal=SIGINT
+TimeoutStopSec=30
+
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target

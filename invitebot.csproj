@@ -1,0 +1,91 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <Title>InviteBot</Title>
+    <RuntimeIdentifiers>win-x64;win-arm64;osx-x64;osx-arm64;linux-x64;linux-arm64</RuntimeIdentifiers>
+  </PropertyGroup>
+
+  <!-- The test project lives in tests/ alongside this one. The SDK's default glob would
+       otherwise pull tests/*.cs into the main assembly (where xUnit is not referenced). -->
+  <ItemGroup>
+    <Compile Remove="tests/**" />
+    <None Remove="tests/**" />
+    <Content Remove="tests/**" />
+  </ItemGroup>
+
+  <!-- Capture git commit and build timestamp once per build, then surface them as
+       AssemblyMetadata attributes so the running binary can show them in its restart
+       notice. Both probes are best-effort: a publish environment without git (or a
+       non-repo source tree) just gets "unknown" and the build still succeeds. -->
+  <Target Name="StampBuildMetadata" BeforeTargets="GetAssemblyAttributes">
+    <Exec Command="git rev-parse --short HEAD" ConsoleToMSBuild="true" IgnoreExitCode="true" StandardOutputImportance="low" StandardErrorImportance="low" WorkingDirectory="$(MSBuildProjectDirectory)">
+      <Output TaskParameter="ConsoleOutput" PropertyName="_GitCommitRaw" />
+      <Output TaskParameter="ExitCode" PropertyName="_GitCommitExit" />
+    </Exec>
+    <Exec Command="git status --porcelain" ConsoleToMSBuild="true" IgnoreExitCode="true" StandardOutputImportance="low" StandardErrorImportance="low" WorkingDirectory="$(MSBuildProjectDirectory)">
+      <Output TaskParameter="ConsoleOutput" PropertyName="_GitStatusRaw" />
+      <Output TaskParameter="ExitCode" PropertyName="_GitStatusExit" />
+    </Exec>
+    <PropertyGroup>
+      <GitCommit Condition="'$(_GitCommitExit)' == '0' and '$(_GitCommitRaw)' != ''">$(_GitCommitRaw.Trim())</GitCommit>
+      <GitCommit Condition="'$(GitCommit)' == ''">unknown</GitCommit>
+      <GitCommit Condition="'$(_GitStatusExit)' == '0' and '$(_GitStatusRaw)' != ''">$(GitCommit)+dirty</GitCommit>
+      <BuildTimestampUtc>$([System.DateTime]::UtcNow.ToString("o"))</BuildTimestampUtc>
+    </PropertyGroup>
+    <ItemGroup>
+      <AssemblyMetadata Include="GitCommit" Value="$(GitCommit)" />
+      <AssemblyMetadata Include="BuildTimestampUtc" Value="$(BuildTimestampUtc)" />
+    </ItemGroup>
+  </Target>
+
+  <!-- When dotnet publish is invoked WITHOUT a -r flag, build all six
+       platform binaries automatically.  Each binary is named
+       <rid>-invitebot[.exe] and placed directly in publish/.
+       When a specific -r is given the standard single-target publish
+       runs as normal. -->
+  <Target Name="PublishAllRids" BeforeTargets="Build" Condition="'$(RuntimeIdentifier)' == '' and ('$(PublishProtocol)' != '' or '$(DeployOnBuild)' == 'true' or '$(IsPublishing)' == 'true')">
+    <!-- Suppress this target so the normal build path continues when
+         we are called recursively by the inner publish loop. -->
+  </Target>
+
+  <Target Name="PublishAllRidsOnPublish" AfterTargets="Publish" Condition="'$(RuntimeIdentifier)' == ''">
+    <ItemGroup>
+      <_RidsToPublish Include="$(RuntimeIdentifiers)" />
+    </ItemGroup>
+    <Message Importance="high" Text="Publishing %(_RidsToPublish.Identity)..." Condition="'%(_RidsToPublish.Identity)' != ''" />
+    <MSBuild Projects="$(MSBuildProjectFullPath)" Targets="Publish" Properties="RuntimeIdentifier=%(_RidsToPublish.Identity);Configuration=$(Configuration);SelfContained=true;PublishSingleFile=true;IncludeNativeLibrariesForSelfExtract=true;EnableCompressionInSingleFile=true;DebugType=none;AssemblyName=%(_RidsToPublish.Identity)-invitebot;PublishDir=$(MSBuildProjectDirectory)\publish\" />
+  </Target>
+
+  <ItemGroup>
+    <None Remove="config.json" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Content Include="config.json" Condition="Exists('config.json')">
+      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+      <CopyToPublishDirectory>Never</CopyToPublishDirectory>
+    </Content>
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Discord.Net" Version="3.19.1" />
+    <PackageReference Include="Magick.NET-Q8-AnyCPU" Version="14.13.0" />
+    <PackageReference Include="Microsoft.Data.Sqlite" Version="10.0.7" />
+    <PackageReference Include="ZXing.Net" Version="0.16.11" />
+  </ItemGroup>
+
+  <!-- Grant the sibling test project access to internal members so pure helpers (e.g. unit
+       parsing) can be unit-tested without being exposed on the public API surface. -->
+  <ItemGroup>
+    <InternalsVisibleTo Include="invitebot.tests" />
+  </ItemGroup>
+  <ItemGroup>
+    <None Include=".github\copilot-instructions.md" />
+    <None Include="tests\invitebot.tests.csproj" />
+  </ItemGroup>
+
+</Project>

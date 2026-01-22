@@ -1,0 +1,4 @@
+<Solution>
+  <Project Path="invitebot.csproj" />
+  <Project Path="tests/invitebot.tests.csproj" />
+</Solution>
