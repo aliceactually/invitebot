@@ -270,6 +270,7 @@ sudo tail -f /var/log/invitebot/invitebot.err   # warnings + errors only
 
 ## License
 
+Copyright © 2026 Alice Kallista Saunier. All rights reserved.
 Distributed under the GNU General Public License v3.0. See [`LICENSE`](LICENSE)
 for the full text.
 
