@@ -10,7 +10,7 @@ namespace InviteBot {
         // ApplyMigrations below. The version is stored in SQLite's built-in PRAGMA user_version,
         // which is a 32-bit integer that travels with the database file. A DB stamped with a
         // version higher than this constant is rejected at startup rather than risk corruption.
-        private const int CurrentSchemaVersion = 2;
+        private const int CurrentSchemaVersion = 3;
 
         // Opens (or creates) the SQLite database and runs schema migrations.
         // Throws on failure so Main can log and exit cleanly.
@@ -63,8 +63,9 @@ namespace InviteBot {
             try {
                 if (fromVersion < 1) { Migrate_0_to_1(tx); }
                 if (fromVersion < 2) { Migrate_1_to_2(tx); }
+                if (fromVersion < 3) { Migrate_2_to_3(tx); }
                 // Future migrations:
-                // if (fromVersion < 3) { Migrate_2_to_3(tx); }
+                // if (fromVersion < 4) { Migrate_3_to_4(tx); }
 
                 tx.Commit();
             } catch {
@@ -129,12 +130,37 @@ namespace InviteBot {
             }
         }
 
+        // v2 -> v3: per-guild WelcomeNewMembers toggle. Auto-welcome on guild join (DM'ing the
+        // bot's introduction to a brand-new member) is on by default for fresh guild rows and
+        // for any pre-existing rows that get upgraded; admins who consider that spammy in a
+        // particular server can turn it off with /invite admin welcome value:false. Default 1
+        // because the introduction is genuinely useful first-time information and skipping it
+        // by default would mean almost no member ever sees it.
+        private static void Migrate_2_to_3(SqliteTransaction tx) {
+            bool hasWelcomeColumn = false;
+            using (SqliteCommand probe = new("PRAGMA table_info(guild_settings);", db, tx))
+            using (SqliteDataReader r = probe.ExecuteReader()) {
+                while (r.Read()) {
+                    if (string.Equals(r.GetString(1), "WelcomeNewMembers", StringComparison.Ordinal)) {
+                        hasWelcomeColumn = true;
+                        break;
+                    }
+                }
+            }
+            if (!hasWelcomeColumn) {
+                using SqliteCommand alter = new(
+                    "ALTER TABLE guild_settings ADD COLUMN WelcomeNewMembers INTEGER NOT NULL DEFAULT 1 CHECK (WelcomeNewMembers IN (0, 1));",
+                    db, tx);
+                alter.ExecuteNonQuery();
+            }
+        }
+
         // Loads any previously-known guilds from the DB so we survive restarts cleanly.
         private static async Task HydrateGuildsAsync() {
             if (db is null) { return; }
             await dbLock.WaitAsync();
             try {
-                using SqliteCommand loadCmd = new("SELECT GuildId, ChannelId, AdminRole, UserRole, Paused, Debug, PrintLongEdgeMm, Domain FROM guild_settings;", db);
+                using SqliteCommand loadCmd = new("SELECT GuildId, ChannelId, AdminRole, UserRole, Paused, Debug, PrintLongEdgeMm, Domain, WelcomeNewMembers FROM guild_settings;", db);
                 using SqliteDataReader reader = loadCmd.ExecuteReader();
                 while (reader.Read()) {
                     GuildContext ctx = new() {
@@ -146,6 +172,7 @@ namespace InviteBot {
                         Debug = reader.GetInt32(5) != 0,
                         PrintLongEdgeMm = reader.IsDBNull(6) ? null : reader.GetDouble(6),
                         Domain = reader.IsDBNull(7) ? null : reader.GetString(7),
+                        WelcomeNewMembers = reader.GetInt32(8) != 0,
                     };
                     guilds[ctx.GuildId] = ctx;
                 }
@@ -191,7 +218,7 @@ namespace InviteBot {
             try {
                 using SqliteCommand cmd = new(
                     @"UPDATE guild_settings
-                      SET ChannelId = @ch, AdminRole = @ar, UserRole = @ur, Paused = @p, Debug = @d, PrintLongEdgeMm = @print, Domain = @domain
+                      SET ChannelId = @ch, AdminRole = @ar, UserRole = @ur, Paused = @p, Debug = @d, PrintLongEdgeMm = @print, Domain = @domain, WelcomeNewMembers = @welcome
                       WHERE GuildId = @id;", db);
                 cmd.Parameters.AddWithValue("@id", (long)ctx.GuildId);
                 cmd.Parameters.AddWithValue("@ch", (long)ctx.ChannelId);
@@ -201,6 +228,7 @@ namespace InviteBot {
                 cmd.Parameters.AddWithValue("@d", ctx.Debug ? 1 : 0);
                 cmd.Parameters.AddWithValue("@print", ctx.PrintLongEdgeMm.HasValue ? ctx.PrintLongEdgeMm.Value : DBNull.Value);
                 cmd.Parameters.AddWithValue("@domain", string.IsNullOrEmpty(ctx.Domain) ? DBNull.Value : (object)ctx.Domain);
+                cmd.Parameters.AddWithValue("@welcome", ctx.WelcomeNewMembers ? 1 : 0);
                 cmd.ExecuteNonQuery();
             } finally { dbLock.Release(); }
         }

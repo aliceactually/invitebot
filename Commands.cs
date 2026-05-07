@@ -73,6 +73,17 @@ namespace InviteBot {
                         .WithType(ApplicationCommandOptionType.SubCommand)
                         .AddOption("backup", ApplicationCommandOptionType.Attachment, "JSON file produced by /invite admin export", isRequired: true)
                         .AddOption("overlay", ApplicationCommandOptionType.Attachment, "Overlay PNG from the same backup (optional)", isRequired: false)
+                    ).AddOption(new SlashCommandOptionBuilder()
+                        .WithName("introduce")
+                        .WithDescription("DMs an introduction to a user, role, or @everyone (admin only)")
+                        .WithType(ApplicationCommandOptionType.SubCommand)
+                        .AddOption("target", ApplicationCommandOptionType.Mentionable, "User or role to introduce the bot to (use @everyone for the whole server)", isRequired: true)
+                        .AddOption("iamsure", ApplicationCommandOptionType.Boolean, "Required when the target covers more than 10% of the server's members", isRequired: false)
+                    ).AddOption(new SlashCommandOptionBuilder()
+                        .WithName("welcome")
+                        .WithDescription("Toggles automatically DM'ing the introduction to new members (admin only)")
+                        .WithType(ApplicationCommandOptionType.SubCommand)
+                        .AddOption("value", ApplicationCommandOptionType.Boolean, "true to auto-introduce on join (default), false to disable", isRequired: true)
                     )
                 );
         }
@@ -173,6 +184,12 @@ namespace InviteBot {
                     return;
                 case "import":
                     await HandleImport(command, ctx, channel, subCommand, user, isAdmin);
+                    return;
+                case "introduce":
+                    await HandleIntroduce(command, ctx, channel, subCommand, user, isAdmin);
+                    return;
+                case "welcome":
+                    await HandleWelcome(command, ctx, channel, subCommand, user, isAdmin);
                     return;
                 default:
                     await DebugLog(ctx, $"User {user.DisplayName} ({user.Id}) attempted to execute invalid subcommand {subCommand.Name}");
@@ -469,7 +486,7 @@ namespace InviteBot {
         // perfectly reasonable use of this output.
         private sealed class GuildExport {
             [JsonPropertyName("schema")] public string Schema { get; init; } = "invitebot.guild-export";
-            [JsonPropertyName("version")] public int Version { get; init; } = 2;
+            [JsonPropertyName("version")] public int Version { get; init; } = 3;
             [JsonPropertyName("exportedUtc")] public string ExportedUtc { get; init; } = "";
             [JsonPropertyName("guildId")] public ulong GuildId { get; init; }
             [JsonPropertyName("guildName")] public string? GuildName { get; init; }
@@ -480,6 +497,11 @@ namespace InviteBot {
             [JsonPropertyName("debug")] public bool Debug { get; init; }
             [JsonPropertyName("printLongEdgeMm")] public double? PrintLongEdgeMm { get; init; }
             [JsonPropertyName("domain")] public string? Domain { get; init; }
+            // v3 added the auto-welcome toggle. Nullable so we can detect "field absent in
+            // older v1/v2 backup" vs "explicit false"; on import, absent defaults to true,
+            // matching both the schema column default and the GuildContext field default so a
+            // v2 backup restored on a v3 build behaves the same as a fresh install.
+            [JsonPropertyName("welcomeNewMembers")] public bool? WelcomeNewMembers { get; init; }
             [JsonPropertyName("overlayFile")] public string? OverlayFile { get; init; }
             [JsonPropertyName("overlayWidth")] public uint? OverlayWidth { get; init; }
             [JsonPropertyName("overlayHeight")] public uint? OverlayHeight { get; init; }
@@ -518,6 +540,7 @@ namespace InviteBot {
                 Debug = ctx.Debug,
                 PrintLongEdgeMm = ctx.PrintLongEdgeMm,
                 Domain = ctx.Domain,
+                WelcomeNewMembers = ctx.WelcomeNewMembers,
                 OverlayFile = overlayFileName,
                 OverlayWidth = overlay?.Width,
                 OverlayHeight = overlay?.Height,
@@ -550,7 +573,7 @@ namespace InviteBot {
 
         // Highest schema version this build can read. Anything newer is rejected so a future
         // export shape cannot be silently truncated by an older bot.
-        private const int GuildExportMaxVersion = 2;
+        private const int GuildExportMaxVersion = 3;
 
         private static async Task HandleImport(SocketSlashCommand command, GuildContext ctx, SocketTextChannel channel, SocketSlashCommandDataOption sub, SocketGuildUser user, bool isAdmin) {
             if (!isAdmin) {
@@ -635,6 +658,10 @@ namespace InviteBot {
             // v2 added Domain. v1 backups have it null, which is the safe default - the admin
             // re-runs /invite admin domain after restoring rather than risking a stale value.
             ctx.Domain = export.Domain;
+            // v3 added WelcomeNewMembers. Older backups have it null; default to true to match
+            // the schema column DEFAULT and the GuildContext field initialiser, so an old
+            // backup restored on a v3 build behaves identically to a fresh install.
+            ctx.WelcomeNewMembers = export.WelcomeNewMembers ?? true;
             await SaveGuildAsync(ctx);
             // If the import changed the redirect domain, the periodic health monitor's last
             // verdict was about a different target; drop it so the next probe records fresh
@@ -716,6 +743,9 @@ namespace InviteBot {
             statusMessage += ctx.PrintLongEdgeMm.HasValue
                 ? $"Default print size: {FormatMm(ctx.PrintLongEdgeMm.Value)} on the long edge (rendered at 300 DPI)."
                 : "Default print size: not set; invites render at the overlay's native dimensions.";
+            statusMessage += ctx.WelcomeNewMembers
+                ? "\nAuto-welcome: enabled (new members are DM'd the introduction on join)."
+                : "\nAuto-welcome: disabled (new members are not DM'd automatically).";
 
             // Live health probe of the redirect domain. Deferred because the probe can run for
             // several seconds in the timeout/DNS-failure cases, which would blow the 3-second

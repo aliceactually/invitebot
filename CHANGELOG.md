@@ -1,6 +1,79 @@
 # Changelog
 
-## v1.0.0 — 2025-11-13
+## v1.0.1 — 07 May 2026
+
+Adds the introduction system: a single `/invite admin introduce` command
+that DMs a role-aware tour of the bot to a user, role, or `@everyone`, and
+an auto-welcome path that does the same thing for new members on join.
+
+### Added
+
+#### Introductions
+- `/invite admin introduce target [iamsure]` slash subcommand. Resolves
+  `target` (a Discord Mentionable: user, role, or `@everyone`) into a
+  deduplicated recipient list, then DMs each recipient the role-appropriate
+  introduction. Bots and the bot's own user are skipped. Closed-DM
+  recipients and other failures are tallied in the ephemeral confirmation
+  rather than aborting the run.
+- 10% safety threshold: if the resolved recipient set covers more than 10%
+  of the guild's members **and** is at least 5 recipients, the command
+  refuses without `iamsure:true` and reports how many DMs would be sent.
+  The 5-recipient floor keeps the threshold from getting in the way in
+  small test guilds.
+- Introduction copy is role-aware: regular users see the `/invite create`
+  tour, admins additionally see the full `/invite admin …` reference, and
+  members with neither role get a friendly note about what they could do
+  if granted access. Long compositions are split across multiple DMs to
+  stay within Discord's 2000-char per-message cap.
+
+#### Auto-welcome
+- New `discord.UserJoined` handler auto-DMs the introduction to every new
+  member of every configured guild, gated on a per-guild
+  `WelcomeNewMembers` toggle (default **enabled**).
+- `/invite admin welcome value:bool` slash subcommand toggles the
+  per-guild auto-welcome behaviour. Idempotent ("already enabled/disabled"
+  short-circuits) and audit-logged to the configured log channel.
+- Auto-welcome is suppressed for unconfigured guilds (no admin role / log
+  channel), bots, the bot's own user, and members whose DMs are closed
+  (the latter is logged at `debug` only — surfacing it publicly would leak
+  the new member's DM-privacy setting to anyone with channel-read).
+
+#### Schema
+- DB schema bumped to **v3**. New `WelcomeNewMembers INTEGER NOT NULL
+  DEFAULT 1` column added to `guild_settings`. Existing rows pick up the
+  default on migration; v1.0.1 is a drop-in upgrade from v1.0.0 with no
+  manual steps.
+- `/invite admin export` schema bumped to **v3**: now includes
+  `welcomeNewMembers`. Older v1/v2 backups continue to import; the
+  missing field defaults to `true` on restore so they behave like a fresh
+  install rather than coming back disabled.
+
+#### Operational
+- The `GuildMembers` privileged gateway intent is now required (for
+  `SocketRole.Members` enumeration in `/invite admin introduce` and for
+  the `UserJoined` event). Enable it in the Discord Developer Portal under
+  **Bot → Privileged Gateway Intents → Server Members Intent**.
+- `/invite admin status` now reports the auto-welcome state alongside the
+  rest of the per-guild configuration.
+
+#### Tests
+- New pure helpers `Introduction` (copy generation + chunk packing) and
+  `IntroductionTargets` (recipient deduplication + threshold planning),
+  with 34 new xUnit tests pinning content invariants and threshold
+  semantics. The admin-section drift detector test now also fails if a
+  newly-added `/invite admin …` subcommand is not mentioned in the
+  introduction copy.
+
+### Changed
+- `Program.cs` startup now requests `GatewayIntents.GuildMembers` and sets
+  `AlwaysDownloadUsers = true` so role member lists are populated for
+  introduction fan-out.
+- The admin section of the introduction documents itself: it lists every
+  current `/invite admin …` subcommand including `introduce` and
+  `welcome`, so the auto-welcome DM new members receive includes the
+  off-switch their admins can use.
+
+## v1.0.0 — 21 Jan 2026
 
 First tagged release. Multi-guild, self-onboarding, with per-guild redirect
 domains, live health monitoring, and a transparent fallback so the QR at

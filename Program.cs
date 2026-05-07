@@ -60,8 +60,14 @@ namespace InviteBot {
             OpenDatabase(dbPath);
             await HydrateGuildsAsync();
 
-            // Create a DiscordSocketClient with the intents we need
-            var intents = new DiscordSocketConfig { GatewayIntents = GatewayIntents.Guilds | GatewayIntents.GuildMessages };
+            // Create a DiscordSocketClient with the intents we need.
+            // GuildMembers is privileged - it must also be enabled in the Discord Developer
+            // Portal for this application. We need it so /invite admin introduce can enumerate
+            // the members of a role (or @everyone) when fanning out introduction DMs.
+            var intents = new DiscordSocketConfig {
+                GatewayIntents = GatewayIntents.Guilds | GatewayIntents.GuildMessages | GatewayIntents.GuildMembers,
+                AlwaysDownloadUsers = true,
+            };
             discord = new DiscordSocketClient(intents);
             discord.Log += global::InviteBot.Log.FromDiscord;
 
@@ -91,6 +97,7 @@ namespace InviteBot {
 
             discord.JoinedGuild += async g => { await EnsureGuildAsync(g.Id); };
             discord.LeftGuild += async g => { await ForgetGuildAsync(g.Id); };
+            discord.UserJoined += HandleUserJoined;
 
             // Post a brief restart notice to every configured guild's invitebot channel.
             // Deliberately quiet: one short line, only in the bot's own channel, never in mod channels.

@@ -23,6 +23,15 @@ namespace InviteBot {
             // Null means "not set" - /invite create refuses until an admin runs /invite admin domain,
             // because there is no sensible global default we could fall back to.
             public string? Domain;
+            // When true, new members joining this guild are automatically DM'd the same
+            // introduction the admin would send via /invite admin introduce. Defaults to true on
+            // a fresh guild row (set by the schema's column DEFAULT, by the EnsureGuildAsync
+            // INSERT, and by the GuildContext field initialiser below) so the welcome behaviour
+            // is opt-out rather than opt-in - admins who don't want it explicitly disable it
+            // with /invite admin welcome value:false. Auto-welcome additionally requires the
+            // guild to be configured (admin role + log channel set), to suppress sending an
+            // introduction that describes commands no role can yet use.
+            public bool WelcomeNewMembers = true;
 
             public bool IsConfigured => ChannelId != 0 && AdminRole != 0;
         }

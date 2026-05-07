@@ -28,6 +28,16 @@ SQLite so it can enforce logical expiry independent of Discord's one-day cap.
 - `/invite admin import` — restores a backup produced by `/invite admin export`.
   The JSON is required; the overlay PNG is optional. Cross-guild restores
   (e.g. dev → prod) are permitted and surfaced in the response.
+- `/invite admin introduce` — DMs an introduction to a user, role, or
+  `@everyone`. The introduction is role-aware: regular users get the
+  `/invite create` tour, admins additionally get the full `/invite admin …`
+  reference, and members with neither role get a friendly note explaining
+  what they'd be able to do if granted access. Targeting more than 10% of
+  the server requires `iamsure:true` to prevent accidental mass-DMs.
+- `/invite admin welcome` — toggles automatically DM'ing the introduction
+  to new members when they join. **Enabled by default.** Disable with
+  `/invite admin welcome value:false` if you'd rather only ever introduce
+  the bot manually.
 - `/invite admin pause | debug | purge | status` — per-server bot controls.
   `status` includes a **live HTTPS probe** of the configured redirect domain
   so you can confirm the load balancer is up without leaving Discord. It
@@ -66,6 +76,15 @@ Generate an OAuth2 invite URL for your application in the
 channel and refuses to save if any of the message-sending permissions are
 missing, so misconfigurations surface immediately instead of at the door.
 
+### Privileged Gateway Intents
+
+`/invite admin introduce` (when targeting a role or `@everyone`) and the
+auto-welcome on member-join both rely on the **Server Members Intent**, which
+is privileged. Enable it for your application in the Discord Developer Portal
+under **Bot → Privileged Gateway Intents → Server Members Intent**. Without
+it, role enumeration returns empty and `UserJoined` never fires, so neither
+feature will work.
+
 ## Configuration
 
 Copy `config.json.sample` to `config.json` and fill in at minimum:
@@ -93,6 +112,7 @@ per-guild config in `config.json`. The full set is:
 - default print long-edge size (`/invite admin print`)
 - overlay PNG (`/invite admin overlay`)
 - `paused` and `debug` flags (`/invite admin pause`, `/invite admin debug`)
+- auto-welcome toggle (`/invite admin welcome`)
 
 Everything except the overlay file itself is captured by `/invite admin
 export`; the overlay PNG is bundled into the same response as a separate
