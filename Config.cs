@@ -97,6 +97,13 @@ namespace InviteBot {
                 throw new ArgumentException($"defaultDuration must be between 0 and {limitText}");
             }
             if (DefaultUses < 0 || DefaultUses > 100) { throw new ArgumentException("defaultUses must be between 0 and 100"); }
+            // Discord snowflakes are 64-bit but the timestamp epoch (2015-01-01) makes any real
+            // guild id comfortably above 2^52. We don't try to be exact here - just reject
+            // obviously-bogus typos like "1" or "12345" so a misconfiguration fails at startup
+            // rather than silently doing nothing once the gateway is Ready. 0 means "disabled".
+            if (DevGuild != 0 && DevGuild < 1_000_000_000_000_000UL) {
+                throw new ArgumentException($"devGuild {DevGuild} is not a plausible Discord guild id (set to 0 to disable the dev-guild fast path)");
+            }
             if (CleanupTimer <= 0 || CleanupTimer > 1440) { throw new ArgumentException("cleanupTimer must be between 1 and 1440 minutes (any longer makes cleanup too inaccurate)"); }
             if (string.IsNullOrEmpty(OverlayDirectory)) { throw new ArgumentException("overlayDirectory must be set in config.json"); }
             if (string.IsNullOrEmpty(Discord.Token)) { throw new ArgumentException("discord.token must be set in config.json"); }

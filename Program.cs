@@ -155,7 +155,33 @@ namespace InviteBot {
             // Build and register the slash command tree
             ApplicationCommandProperties built = BuildSlashCommand().Build();
             await discord.Rest.BulkOverwriteGlobalCommands(new ApplicationCommandProperties[] { built });
-            // Also register to the dev guild (if configured) so iteration is instant
+
+            // Dev-guild fast path. Global registration can take ~1h to propagate; mirroring the
+            // same command tree onto a single guild makes it visible there in seconds, which is
+            // what makes iteration tolerable. We additionally remember the previous dev guild
+            // in bot_state so that changing or clearing devGuild between runs can wipe the
+            // now-stale guild-scoped command set on the previous target rather than leaving it
+            // to linger forever (Discord does not garbage-collect orphaned guild commands).
+            string? previousDevGuildRaw = await GetBotStateAsync("devGuild");
+            ulong previousDevGuild = 0;
+            if (!string.IsNullOrEmpty(previousDevGuildRaw)
+                && !ulong.TryParse(previousDevGuildRaw, System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out previousDevGuild)) {
+                Log.Warn("startup", $"bot_state.devGuild value \"{previousDevGuildRaw}\" is not a ulong; ignoring");
+                previousDevGuild = 0;
+            }
+            if (previousDevGuild != 0 && previousDevGuild != devGuild) {
+                SocketGuild? stale = discord.GetGuild(previousDevGuild);
+                if (stale is not null) {
+                    try {
+                        await stale.BulkOverwriteApplicationCommandAsync(Array.Empty<ApplicationCommandProperties>());
+                        Log.Info("startup", $"Cleared stale dev-guild slash commands from previous devGuild {previousDevGuild}");
+                    } catch (Exception x) {
+                        Log.Warn("startup", $"Failed to clear stale dev-guild slash commands from {previousDevGuild}", x);
+                    }
+                } else {
+                    Log.Warn("startup", $"Previous devGuild {previousDevGuild} is no longer reachable; cannot clear its stale guild-scoped commands. Re-add the bot to that guild and restart, or remove the commands manually.");
+                }
+            }
             if (devGuild != 0) {
                 SocketGuild? dev = discord.GetGuild(devGuild);
                 if (dev is not null) {
@@ -165,8 +191,15 @@ namespace InviteBot {
                     }
                     catch (Exception x) { Log.Error("startup", "Failed to register dev-guild slash command", x); }
                 } else {
-                    Log.Warn("startup", $"devGuild {devGuild} is configured but the bot is not a member of that guild");
+                    Log.Warn("startup",
+                        $"devGuild {devGuild} is configured but the bot is not a member of that guild. " +
+                        "Either invite the bot to that guild, fix the ID in config.json, or set devGuild to 0 to disable the dev-guild fast path.");
                 }
+            }
+            // Record what we registered against (including the 0 case) so the next startup can
+            // detect a change. Done last so a crash mid-registration doesn't lie about state.
+            if (previousDevGuild != devGuild) {
+                await SetBotStateAsync("devGuild", devGuild.ToString(System.Globalization.CultureInfo.InvariantCulture));
             }
             discord.SlashCommandExecuted += SlashCommandHandler;
 

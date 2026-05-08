@@ -10,7 +10,7 @@ namespace InviteBot {
         // ApplyMigrations below. The version is stored in SQLite's built-in PRAGMA user_version,
         // which is a 32-bit integer that travels with the database file. A DB stamped with a
         // version higher than this constant is rejected at startup rather than risk corruption.
-        private const int CurrentSchemaVersion = 4;
+        private const int CurrentSchemaVersion = 5;
 
         // Opens (or creates) the SQLite database and runs schema migrations.
         // Throws on failure so Main can log and exit cleanly.
@@ -65,8 +65,9 @@ namespace InviteBot {
                 if (fromVersion < 2) { Migrate_1_to_2(tx); }
                 if (fromVersion < 3) { Migrate_2_to_3(tx); }
                 if (fromVersion < 4) { Migrate_3_to_4(tx); }
+                if (fromVersion < 5) { Migrate_4_to_5(tx); }
                 // Future migrations:
-                // if (fromVersion < 5) { Migrate_4_to_5(tx); }
+                // if (fromVersion < 6) { Migrate_5_to_6(tx); }
 
                 tx.Commit();
             } catch {
@@ -176,6 +177,47 @@ namespace InviteBot {
             AddIfMissing("DefaultDuration", "INTEGER");
             AddIfMissing("DefaultUses", "INTEGER");
             AddIfMissing("ForeverDuration", "INTEGER");
+        }
+
+        // v4 -> v5: a tiny key/value table for bot-wide bookkeeping that doesn't belong on a
+        // per-guild row. Currently used to remember which devGuild we last registered the
+        // dev-fast-path slash command set against, so a startup that sees devGuild change
+        // (or be cleared back to 0) can wipe the now-stale guild-scoped command set on the
+        // previous dev guild before it confuses anyone. Kept deliberately generic so future
+        // bookkeeping doesn't need its own migration.
+        private static void Migrate_4_to_5(SqliteTransaction tx) {
+            using SqliteCommand cmd = new(
+                @"CREATE TABLE IF NOT EXISTS bot_state (
+                    Key   TEXT PRIMARY KEY,
+                    Value TEXT NOT NULL);", db, tx);
+            cmd.ExecuteNonQuery();
+        }
+
+        // Tiny wrappers around bot_state. Caller picks the key and the (string) value;
+        // numeric values like devGuild are formatted/parsed with InvariantCulture at the
+        // call site to avoid culture surprises.
+        private static async Task<string?> GetBotStateAsync(string key) {
+            if (db is null) { return null; }
+            await dbLock.WaitAsync();
+            try {
+                using SqliteCommand cmd = new("SELECT Value FROM bot_state WHERE Key = @k;", db);
+                cmd.Parameters.AddWithValue("@k", key);
+                object? raw = cmd.ExecuteScalar();
+                return raw is null or DBNull ? null : Convert.ToString(raw);
+            } finally { dbLock.Release(); }
+        }
+
+        private static async Task SetBotStateAsync(string key, string value) {
+            if (db is null) { return; }
+            await dbLock.WaitAsync();
+            try {
+                using SqliteCommand cmd = new(
+                    @"INSERT INTO bot_state (Key, Value) VALUES (@k, @v)
+                      ON CONFLICT(Key) DO UPDATE SET Value = excluded.Value;", db);
+                cmd.Parameters.AddWithValue("@k", key);
+                cmd.Parameters.AddWithValue("@v", value);
+                cmd.ExecuteNonQuery();
+            } finally { dbLock.Release(); }
         }
 
         // Loads any previously-known guilds from the DB so we survive restarts cleanly.
