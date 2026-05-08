@@ -215,7 +215,11 @@ namespace InviteBot {
             if (duration == 0) { durationText += "NEVER"; }
             else {
                 DateTime expiry = DateTime.UtcNow.AddMinutes(duration);
-                durationText += $"{expiry.ToShortDateString()} {expiry.ToShortTimeString()} UTC";
+                // DD MMM YYYY HHmm UTC, e.g. "07 MAY 2026 0616 UTC". Invariant culture so the
+                // month abbreviation and day order do not shift with the host's locale; the
+                // whole string is then uppercased (still invariant) to match the all-caps look
+                // of "EXP" / "USES" / "NEVER" elsewhere in the caption.
+                durationText += (expiry.ToString("dd MMM yyyy HHmm", System.Globalization.CultureInfo.InvariantCulture) + " UTC").ToUpperInvariant();
             }
             string usesText = "USES ";
             if (uses == 0) { usesText += "∞"; } else { usesText += uses.ToString(); }
