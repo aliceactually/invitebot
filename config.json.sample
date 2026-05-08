@@ -7,7 +7,7 @@
   "database": "database.sqlite3",
   "overlayDirectory": "overlays",
   "fallbackDomain": "discord.gg",
-  "captionFont": "Courier New",
+  "captionFont": "DejaVu Sans Mono",
   "devGuild": "",
   "discord": {
     "token": "<Discord Bot Token>"

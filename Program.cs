@@ -37,6 +37,22 @@ namespace InviteBot {
             Log.DebugEnabled = defaultDebug;
             Log.Info("startup", $"Configuration loaded (debug={defaultDebug}, cleanupTimer={cleanupTimer}m, fallbackDomain={fallbackDomain})");
 
+            // Probe the caption font at startup. /invite create lazily resolves this via
+            // ImageMagick's FontTypeMetrics; if the host is missing the font (e.g. a Linux box
+            // with no fontconfig or no mscorefonts package), every single invite request crashes
+            // mid-render and the user is left staring at "Rendering QR code..." indefinitely.
+            // Failing loudly here turns a silent, per-request prod incident into an immediate,
+            // actionable startup error.
+            if (!ProbeCaptionFont(captionFont, out string? probeError)) {
+                Log.Error("startup",
+                    $"Caption font \"{captionFont}\" cannot be loaded by ImageMagick ({probeError}). " +
+                    "On Linux, install fontconfig and a font package that provides this family " +
+                    "(e.g. apt-get install fontconfig fonts-dejavu-core, or ttf-mscorefonts-installer " +
+                    "for \"Courier New\"). Update captionFont in config.json to a font that resolves on this host.");
+                return;
+            }
+            Log.Info("startup", $"Caption font \"{captionFont}\" resolved successfully");
+
             // Optional dev guild: when set, the slash command is also registered to this guild,
             // which propagates instantly. Global registration can take up to ~1 hour on first publish.
             ulong devGuild = config.DevGuild;

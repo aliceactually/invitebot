@@ -104,6 +104,29 @@ namespace InviteBot {
         }
 
         private static async Task SlashCommandHandler(SocketSlashCommand command) {
+            try {
+                await SlashCommandHandlerCore(command);
+            } catch (Exception x) {
+                // Last-resort safety net. Discord.Net will log+swallow this otherwise, leaving the
+                // user staring at whatever progress message we last set (e.g. "Rendering QR code...")
+                // forever. We at least owe them a follow-up so they know to retry / report. Any
+                // failure inside the recovery path is itself swallowed so we cannot crash the
+                // gateway thread.
+                Log.Error("invite", $"Unhandled exception in slash command handler for /{command.Data.Name}", x);
+                try {
+                    string msg = "Sorry - something went wrong handling that command. The bot operator has been notified via the logs.";
+                    if (command.HasResponded) {
+                        await command.FollowupAsync(msg, ephemeral: true);
+                    } else {
+                        await command.RespondAsync(msg, ephemeral: true);
+                    }
+                } catch (Exception y) {
+                    Log.Warn("invite", "Also failed to surface the error to the user", y);
+                }
+            }
+        }
+
+        private static async Task SlashCommandHandlerCore(SocketSlashCommand command) {
             SocketGuildUser? user = command.User as SocketGuildUser;
             if (user is null) { return; }
 

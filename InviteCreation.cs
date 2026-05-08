@@ -13,6 +13,25 @@ namespace InviteBot {
         // Handles /invite create: produces a fresh invite, persists it, renders the QR overlay,
         // and posts both the link and the rendered image. Lives in its own file because the
         // imaging pipeline dwarfs every other handler.
+
+        // Startup-time check that ImageMagick can actually load the configured caption font.
+        // Mirrors the FontTypeMetrics call HandleCreate uses, which is what historically blew
+        // up in production with `UnableToReadFont`. Returns true if the font resolves; otherwise
+        // sets error to the underlying message so Main can present a useful diagnostic.
+        internal static bool ProbeCaptionFont(string fontName, out string? error) {
+            try {
+                using MagickImage probe = new(MagickColors.White, 1, 1);
+                probe.Settings.Font = fontName;
+                probe.Settings.FontPointsize = 12;
+                _ = probe.FontTypeMetrics("Probe");
+                error = null;
+                return true;
+            } catch (Exception x) {
+                error = x.Message;
+                return false;
+            }
+        }
+
         private static async Task HandleCreate(SocketSlashCommand command, GuildContext ctx, SocketTextChannel channel, SocketSlashCommandDataOption sub, SocketGuildUser user, bool isAdmin) {
             await DebugLog(ctx, $"User {user.DisplayName} ({user.Id}) was granted access to subcommand {sub.Name}");
 
