@@ -1,8 +1,8 @@
 {
-  "cleanupTimer": 15,
-  "defaultDuration": 60,
+  "cleanupTimer": 5,
+  "defaultDuration": 1440,
   "defaultUses": 1,
-  "foreverDuration": 30,
+  "foreverDuration": 525600,
   "debug": false,
   "database": "database.sqlite3",
   "overlayDirectory": "overlays",

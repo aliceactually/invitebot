@@ -32,9 +32,28 @@ namespace InviteBot {
             // guild to be configured (admin role + log channel set), to suppress sending an
             // introduction that describes commands no role can yet use.
             public bool WelcomeNewMembers = true;
+            // Per-guild overrides for the bot-wide invite defaults. Null means "inherit the
+            // value from config.json" - which is the right default because most operators are
+            // happy with one set of numbers across every guild they host. Admins who want a
+            // different policy in a particular server set them via /invite admin defaultduration,
+            // /invite admin defaultuses, and /invite admin foreverduration; passing -1 to any
+            // of those clears the override and re-inherits the config value. The effective
+            // values used at /invite create time are computed by EffectiveDefaultDuration,
+            // EffectiveDefaultUses, and EffectiveForeverDuration so the override/fallback
+            // resolution lives in exactly one place.
+            public int? DefaultDuration;
+            public int? DefaultUses;
+            public int? ForeverDuration;
 
             public bool IsConfigured => ChannelId != 0 && AdminRole != 0;
         }
+
+        // Effective per-guild defaults: per-guild override if set, otherwise the config value
+        // loaded at startup. Centralised so HandleCreate, HandleStatus, and any future caller
+        // never reach for the static config field directly.
+        private static int EffectiveDefaultDuration(GuildContext ctx) => ctx.DefaultDuration ?? defaultDuration;
+        private static int EffectiveDefaultUses(GuildContext ctx) => ctx.DefaultUses ?? defaultUses;
+        private static int EffectiveForeverDuration(GuildContext ctx) => ctx.ForeverDuration ?? foreverDuration;
 
         // Per-guild contexts, keyed by guild id
         private static readonly ConcurrentDictionary<ulong, GuildContext> guilds = new();

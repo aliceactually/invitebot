@@ -63,15 +63,33 @@ namespace InviteBot {
             }
 
             // Parse options, for administrators only
-            int duration = defaultDuration;
-            int uses = defaultUses;
+            int effectiveDefaultDuration = EffectiveDefaultDuration(ctx);
+            int effectiveDefaultUses = EffectiveDefaultUses(ctx);
+            int effectiveForeverDuration = EffectiveForeverDuration(ctx);
+            int duration = effectiveDefaultDuration;
+            int uses = effectiveDefaultUses;
             double? printLongEdgeMm = ctx.PrintLongEdgeMm;
+            // Maximum duration accepted from the slash option, in minutes. Capped at the
+            // effective foreverDuration (also minutes), because anything longer than that
+            // would outlive the bot's own logical-expiry window and behave indistinguishably
+            // from duration:0. A foreverDuration of 0 means "forever" - in that case there is
+            // no upper bound at all and we cap at int.MaxValue minutes (well beyond any sane
+            // request). Discord's API still tops out at 1440 minutes (24h) so we ask Discord
+            // for min(duration, 1440); anything past that is enforced via the DB-tracked
+            // ExpiryDate that the cleanup loop already honours.
+            int maxDurationMinutes = effectiveForeverDuration == 0 ? int.MaxValue : effectiveForeverDuration;
             if (isAdmin) {
                 foreach (SocketSlashCommandDataOption option in sub.Options) {
                     switch (option.Name) {
                         case "duration":
                             if (option.Value is not long durationValue) { break; }
-                            if (durationValue < 0 || durationValue > 1440) { await command.FollowupAsync("The duration parameter is out of range", ephemeral: true); return; }
+                            if (durationValue < 0 || durationValue > maxDurationMinutes) {
+                                string limitText = effectiveForeverDuration == 0
+                                    ? "0 (use 0 for \"never expires\")"
+                                    : $"{maxDurationMinutes} (the effective foreverDuration, in minutes)";
+                                await command.FollowupAsync($"The duration parameter is out of range; allowed values are 0 to {limitText}", ephemeral: true);
+                                return;
+                            }
                             duration = (int)durationValue;
                             break;
                         case "uses":
@@ -99,7 +117,14 @@ namespace InviteBot {
 
             // Retrieve an invite, and construct the URL
             await Progress("\u23f3 Asking Discord for an invite...");
-            IInviteMetadata invite = await channel.CreateInviteAsync(maxAge: duration * 60, maxUses: uses, isTemporary: false, isUnique: true);
+            // Discord caps maxAge at 24h (86400s). For longer requested lifetimes we still ask
+            // Discord for the full cap and let the DB-tracked ExpiryDate hold the canonical
+            // logical expiry; the cleanup loop will purge the row when that time arrives.
+            // Note: at the moment we do not auto-recreate the underlying Discord invite when
+            // it hits its own 24h limit, so a >24h request currently means the link itself
+            // will stop working at the Discord cap even though the bot considers it live.
+            int discordMaxAgeSeconds = duration == 0 ? 0 : Math.Min(duration, 1440) * 60;
+            IInviteMetadata invite = await channel.CreateInviteAsync(maxAge: discordMaxAgeSeconds, maxUses: uses, isTemporary: false, isUnique: true);
             string inviteUrl = $"https://{effectiveDomain}/{invite.Id}";
 
             // Persist the invite so the cleanup loop can enforce a logical expiry independent of Discord's 1-day cap
@@ -107,7 +132,7 @@ namespace InviteBot {
                 DateTime creationDate = DateTime.UtcNow;
                 DateTime expiryDate;
                 if (duration == 0) {
-                    expiryDate = foreverDuration == 0 ? DateTime.MaxValue : creationDate.AddDays(foreverDuration);
+                    expiryDate = effectiveForeverDuration == 0 ? DateTime.MaxValue : creationDate.AddMinutes(effectiveForeverDuration);
                 } else {
                     expiryDate = creationDate.AddMinutes(duration);
                 }

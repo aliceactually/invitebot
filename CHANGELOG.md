@@ -39,14 +39,18 @@ an auto-welcome path that does the same thing for new members on join.
   the new member's DM-privacy setting to anyone with channel-read).
 
 #### Schema
-- DB schema bumped to **v3**. New `WelcomeNewMembers INTEGER NOT NULL
-  DEFAULT 1` column added to `guild_settings`. Existing rows pick up the
-  default on migration; v1.0.1 is a drop-in upgrade from v1.0.0 with no
-  manual steps.
-- `/invite admin export` schema bumped to **v3**: now includes
-  `welcomeNewMembers`. Older v1/v2 backups continue to import; the
-  missing field defaults to `true` on restore so they behave like a fresh
-  install rather than coming back disabled.
+- DB schema bumped to **v4**. New `WelcomeNewMembers INTEGER NOT NULL
+  DEFAULT 1` column added to `guild_settings` (v3), plus three nullable
+  per-guild override columns `DefaultDuration`, `DefaultUses`, and
+  `ForeverDuration` (v4). Existing rows pick up the defaults / `NULL` on
+  migration; v1.0.1 is a drop-in upgrade from v1.0.0 with no manual steps.
+- `/invite admin export` schema bumped to **v4**: now includes
+  `welcomeNewMembers`, `defaultDuration`, `defaultUses`, and
+  `foreverDuration`. Older v1/v2/v3 backups continue to import; the
+  missing fields restore as `null` (i.e. inherit the bot-wide defaults)
+  for the override trio, and `welcomeNewMembers` defaults to `true` on
+  restore so older backups behave like a fresh install rather than
+  coming back disabled.
 
 #### Operational
 - The `GuildMembers` privileged gateway intent is now required (for
@@ -54,7 +58,20 @@ an auto-welcome path that does the same thing for new members on join.
   the `UserJoined` event). Enable it in the Discord Developer Portal under
   **Bot → Privileged Gateway Intents → Server Members Intent**.
 - `/invite admin status` now reports the auto-welcome state alongside the
-  rest of the per-guild configuration.
+  rest of the per-guild configuration, plus the effective
+  `defaultDuration`, `defaultUses`, and `foreverDuration` and whether
+  each one is per-server or inherited.
+
+#### Per-server defaults
+- `/invite admin defaultduration value:<minutes>`,
+  `/invite admin defaultuses value:<count>`, and
+  `/invite admin foreverduration value:<minutes>` slash subcommands let
+  each guild override the bot-wide values from `config.json`. Pass
+  `value:-1` to clear the override and re-inherit. Per-server
+  `defaultDuration` is validated against the effective `foreverDuration`
+  the same way `/invite create duration` is, and lowering
+  `foreverDuration` below the current `defaultDuration` is refused with a
+  message rather than silently truncating.
 
 #### Tests
 - New pure helpers `Introduction` (copy generation + chunk packing) and

@@ -22,7 +22,7 @@ namespace InviteBot {
 
         [JsonPropertyName("foreverDuration")]
         [JsonConverter(typeof(LenientInt32Converter))]
-        public int ForeverDuration { get; init; } = 30;
+        public int ForeverDuration { get; init; } = 43200;
 
         [JsonPropertyName("debug")]
         [JsonConverter(typeof(LenientBooleanConverter))]
@@ -84,9 +84,19 @@ namespace InviteBot {
         }
 
         private void Validate() {
-            if (DefaultDuration < 0 || DefaultDuration > 1440) { throw new ArgumentException("defaultDuration must be between 0 and 1440"); }
-            if (DefaultUses < 0 || DefaultUses > 100) { throw new ArgumentException("defaultUses must be between 0 and 100"); }
             if (ForeverDuration < 0) { throw new ArgumentException("foreverDuration must be >= 0"); }
+            // defaultDuration (minutes) may go up to and including foreverDuration (also minutes),
+            // since anything longer is tracked via the DB-backed ExpiryDate rather than Discord's
+            // own maxAge. foreverDuration:0 means "no upper bound" - so any non-negative value
+            // is OK.
+            int defaultDurationMax = ForeverDuration == 0 ? int.MaxValue : ForeverDuration;
+            if (DefaultDuration < 0 || DefaultDuration > defaultDurationMax) {
+                string limitText = ForeverDuration == 0
+                    ? "0 (foreverDuration is 0, so any non-negative value is allowed)"
+                    : $"{defaultDurationMax} (the configured foreverDuration)";
+                throw new ArgumentException($"defaultDuration must be between 0 and {limitText}");
+            }
+            if (DefaultUses < 0 || DefaultUses > 100) { throw new ArgumentException("defaultUses must be between 0 and 100"); }
             if (CleanupTimer <= 0 || CleanupTimer > 1440) { throw new ArgumentException("cleanupTimer must be between 1 and 1440 minutes (any longer makes cleanup too inaccurate)"); }
             if (string.IsNullOrEmpty(OverlayDirectory)) { throw new ArgumentException("overlayDirectory must be set in config.json"); }
             if (string.IsNullOrEmpty(Discord.Token)) { throw new ArgumentException("discord.token must be set in config.json"); }

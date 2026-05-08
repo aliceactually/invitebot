@@ -84,6 +84,21 @@ namespace InviteBot {
                         .WithDescription("Toggles automatically DM'ing the introduction to new members (admin only)")
                         .WithType(ApplicationCommandOptionType.SubCommand)
                         .AddOption("value", ApplicationCommandOptionType.Boolean, "true to auto-introduce on join (default), false to disable", isRequired: true)
+                    ).AddOption(new SlashCommandOptionBuilder()
+                        .WithName("defaultduration")
+                        .WithDescription("Sets this server's default invite duration in minutes (admin only; -1 to inherit)")
+                        .WithType(ApplicationCommandOptionType.SubCommand)
+                        .AddOption("value", ApplicationCommandOptionType.Integer, "Minutes (0 = forever; -1 = inherit the bot-wide default)", isRequired: true)
+                    ).AddOption(new SlashCommandOptionBuilder()
+                        .WithName("defaultuses")
+                        .WithDescription("Sets this server's default invite use count (admin only; -1 to inherit)")
+                        .WithType(ApplicationCommandOptionType.SubCommand)
+                        .AddOption("value", ApplicationCommandOptionType.Integer, "Uses (0 = unlimited; -1 = inherit the bot-wide default)", isRequired: true)
+                    ).AddOption(new SlashCommandOptionBuilder()
+                        .WithName("foreverduration")
+                        .WithDescription("Sets this server's cap on invite duration in minutes (admin only; -1 to inherit)")
+                        .WithType(ApplicationCommandOptionType.SubCommand)
+                        .AddOption("value", ApplicationCommandOptionType.Integer, "Minutes (0 = no cap; -1 = inherit the bot-wide default)", isRequired: true)
                     )
                 );
         }
@@ -190,6 +205,15 @@ namespace InviteBot {
                     return;
                 case "welcome":
                     await HandleWelcome(command, ctx, channel, subCommand, user, isAdmin);
+                    return;
+                case "defaultduration":
+                    await HandleDefaultDuration(command, ctx, channel, subCommand, user, isAdmin);
+                    return;
+                case "defaultuses":
+                    await HandleDefaultUses(command, ctx, channel, subCommand, user, isAdmin);
+                    return;
+                case "foreverduration":
+                    await HandleForeverDuration(command, ctx, channel, subCommand, user, isAdmin);
                     return;
                 default:
                     await DebugLog(ctx, $"User {user.DisplayName} ({user.Id}) attempted to execute invalid subcommand {subCommand.Name}");
@@ -480,13 +504,145 @@ namespace InviteBot {
             await command.FollowupAsync(message, ephemeral: true);
         }
 
+        // Per-guild override for defaultDuration. Mirrors HandleDomain/HandlePrint: a single
+        // value option, with a sentinel (-1) that clears the override and re-inherits the
+        // bot-wide config value. Validated against the effective foreverDuration the same way
+        // /invite create's duration option is, so the per-guild defaults can never silently
+        // exceed the per-guild cap.
+        private static async Task HandleDefaultDuration(SocketSlashCommand command, GuildContext ctx, SocketTextChannel channel, SocketSlashCommandDataOption sub, SocketGuildUser user, bool isAdmin) {
+            if (!isAdmin) {
+                await DebugLog(ctx, $"User {user.DisplayName} ({user.Id}) was denied access to subcommand defaultduration");
+                await command.RespondAsync("You are not authorised to use this command", ephemeral: true);
+                return;
+            }
+            await DebugLog(ctx, $"User {user.DisplayName} ({user.Id}) was granted access to subcommand defaultduration");
+
+            long? raw = sub.Options.FirstOrDefault(o => o.Name == "value")?.Value as long?;
+            if (raw is null) {
+                await command.RespondAsync("The value parameter is required", ephemeral: true);
+                return;
+            }
+
+            if (raw.Value < 0) {
+                ctx.DefaultDuration = null;
+                await SaveGuildAsync(ctx);
+                await channel.SendMessageAsync($"User {user.DisplayName} ({user.Id}) cleared the per-server default invite duration");
+                await command.RespondAsync($"Per-server default invite duration cleared. Inheriting the bot-wide value of {defaultDuration} minute(s).", ephemeral: true);
+                return;
+            }
+
+            int effectiveForever = EffectiveForeverDuration(ctx);
+            int maxAllowed = effectiveForever == 0 ? int.MaxValue : effectiveForever;
+            if (raw.Value > maxAllowed) {
+                string limitText = effectiveForever == 0
+                    ? "0 (foreverDuration is 0, so any non-negative value is allowed)"
+                    : $"{maxAllowed} (the effective foreverDuration, in minutes)";
+                await command.RespondAsync($"The value parameter is out of range; allowed values are 0 to {limitText} (or -1 to inherit)", ephemeral: true);
+                return;
+            }
+
+            ctx.DefaultDuration = (int)raw.Value;
+            await SaveGuildAsync(ctx);
+            await channel.SendMessageAsync($"User {user.DisplayName} ({user.Id}) set the per-server default invite duration to {ctx.DefaultDuration} minute(s)");
+            await command.RespondAsync($"Per-server default invite duration set to {ctx.DefaultDuration} minute(s).", ephemeral: true);
+        }
+
+        // Per-guild override for defaultUses. Same shape as HandleDefaultDuration; the upper
+        // bound is the same 100 we enforce on /invite create's uses option (Discord itself
+        // accepts up to 100 uses on a single invite).
+        private static async Task HandleDefaultUses(SocketSlashCommand command, GuildContext ctx, SocketTextChannel channel, SocketSlashCommandDataOption sub, SocketGuildUser user, bool isAdmin) {
+            if (!isAdmin) {
+                await DebugLog(ctx, $"User {user.DisplayName} ({user.Id}) was denied access to subcommand defaultuses");
+                await command.RespondAsync("You are not authorised to use this command", ephemeral: true);
+                return;
+            }
+            await DebugLog(ctx, $"User {user.DisplayName} ({user.Id}) was granted access to subcommand defaultuses");
+
+            long? raw = sub.Options.FirstOrDefault(o => o.Name == "value")?.Value as long?;
+            if (raw is null) {
+                await command.RespondAsync("The value parameter is required", ephemeral: true);
+                return;
+            }
+
+            if (raw.Value < 0) {
+                ctx.DefaultUses = null;
+                await SaveGuildAsync(ctx);
+                await channel.SendMessageAsync($"User {user.DisplayName} ({user.Id}) cleared the per-server default invite use count");
+                await command.RespondAsync($"Per-server default invite use count cleared. Inheriting the bot-wide value of {defaultUses}.", ephemeral: true);
+                return;
+            }
+
+            if (raw.Value > 100) {
+                await command.RespondAsync("The value parameter is out of range; allowed values are 0 to 100 (or -1 to inherit)", ephemeral: true);
+                return;
+            }
+
+            ctx.DefaultUses = (int)raw.Value;
+            await SaveGuildAsync(ctx);
+            await channel.SendMessageAsync($"User {user.DisplayName} ({user.Id}) set the per-server default invite use count to {ctx.DefaultUses}");
+            await command.RespondAsync($"Per-server default invite use count set to {ctx.DefaultUses}.", ephemeral: true);
+        }
+
+        // Per-guild override for foreverDuration. Same shape as the others. Lowering this
+        // below the current per-guild defaultDuration would create an inconsistent state
+        // (the default would exceed the cap), so we refuse with a clear message rather than
+        // silently truncating; the admin can either raise the cap or first lower the default.
+        private static async Task HandleForeverDuration(SocketSlashCommand command, GuildContext ctx, SocketTextChannel channel, SocketSlashCommandDataOption sub, SocketGuildUser user, bool isAdmin) {
+            if (!isAdmin) {
+                await DebugLog(ctx, $"User {user.DisplayName} ({user.Id}) was denied access to subcommand foreverduration");
+                await command.RespondAsync("You are not authorised to use this command", ephemeral: true);
+                return;
+            }
+            await DebugLog(ctx, $"User {user.DisplayName} ({user.Id}) was granted access to subcommand foreverduration");
+
+            long? raw = sub.Options.FirstOrDefault(o => o.Name == "value")?.Value as long?;
+            if (raw is null) {
+                await command.RespondAsync("The value parameter is required", ephemeral: true);
+                return;
+            }
+
+            int effectiveDefault = EffectiveDefaultDuration(ctx);
+
+            if (raw.Value < 0) {
+                // Re-inherit the bot-wide value. Verify the (now config-driven) cap still
+                // accommodates the per-guild defaultDuration override, if one is set.
+                int wouldBeForever = foreverDuration;
+                if (ctx.DefaultDuration is int perGuildDefault && wouldBeForever != 0 && perGuildDefault > wouldBeForever) {
+                    await command.RespondAsync(
+                        $"Cannot inherit the bot-wide foreverDuration ({wouldBeForever} minute(s)): the per-server defaultDuration is currently {perGuildDefault} minute(s), which would exceed it. " +
+                        "Lower the per-server defaultDuration first (or clear it with /invite admin defaultduration value:-1).",
+                        ephemeral: true);
+                    return;
+                }
+                ctx.ForeverDuration = null;
+                await SaveGuildAsync(ctx);
+                await channel.SendMessageAsync($"User {user.DisplayName} ({user.Id}) cleared the per-server invite duration cap");
+                await command.RespondAsync($"Per-server invite duration cap cleared. Inheriting the bot-wide value of {foreverDuration} minute(s).", ephemeral: true);
+                return;
+            }
+
+            if (raw.Value != 0 && effectiveDefault > raw.Value) {
+                await command.RespondAsync(
+                    $"The value parameter ({raw.Value}) is below the effective defaultDuration ({effectiveDefault} minute(s)). " +
+                    "Lower the defaultDuration first (or clear it with /invite admin defaultduration value:-1).",
+                    ephemeral: true);
+                return;
+            }
+
+            ctx.ForeverDuration = (int)raw.Value;
+            await SaveGuildAsync(ctx);
+            string label = ctx.ForeverDuration == 0 ? "0 (no cap)" : $"{ctx.ForeverDuration} minute(s)";
+            await channel.SendMessageAsync($"User {user.DisplayName} ({user.Id}) set the per-server invite duration cap to {label}");
+            await command.RespondAsync($"Per-server invite duration cap set to {label}.", ephemeral: true);
+        }
+
         // Versioned schema for /invite admin export. Bump the version when fields change so a
         // future /invite admin import can refuse anything it does not understand. The shape is
         // deliberately flat and human-editable - a sysadmin restoring a backup by hand is a
         // perfectly reasonable use of this output.
         private sealed class GuildExport {
             [JsonPropertyName("schema")] public string Schema { get; init; } = "invitebot.guild-export";
-            [JsonPropertyName("version")] public int Version { get; init; } = 3;
+            [JsonPropertyName("version")] public int Version { get; init; } = 4;
             [JsonPropertyName("exportedUtc")] public string ExportedUtc { get; init; } = "";
             [JsonPropertyName("guildId")] public ulong GuildId { get; init; }
             [JsonPropertyName("guildName")] public string? GuildName { get; init; }
@@ -502,6 +658,14 @@ namespace InviteBot {
             // matching both the schema column default and the GuildContext field default so a
             // v2 backup restored on a v3 build behaves the same as a fresh install.
             [JsonPropertyName("welcomeNewMembers")] public bool? WelcomeNewMembers { get; init; }
+            // v4 added per-guild overrides for defaultDuration, defaultUses, and
+            // foreverDuration. All three are nullable in two senses at once: "field absent
+            // because the backup is older than v4" and "field present but null because this
+            // guild inherits the bot-wide value". Both cases round-trip to a NULL DB column,
+            // which is what we want.
+            [JsonPropertyName("defaultDuration")] public int? DefaultDuration { get; init; }
+            [JsonPropertyName("defaultUses")] public int? DefaultUses { get; init; }
+            [JsonPropertyName("foreverDuration")] public int? ForeverDuration { get; init; }
             [JsonPropertyName("overlayFile")] public string? OverlayFile { get; init; }
             [JsonPropertyName("overlayWidth")] public uint? OverlayWidth { get; init; }
             [JsonPropertyName("overlayHeight")] public uint? OverlayHeight { get; init; }
@@ -541,6 +705,9 @@ namespace InviteBot {
                 PrintLongEdgeMm = ctx.PrintLongEdgeMm,
                 Domain = ctx.Domain,
                 WelcomeNewMembers = ctx.WelcomeNewMembers,
+                DefaultDuration = ctx.DefaultDuration,
+                DefaultUses = ctx.DefaultUses,
+                ForeverDuration = ctx.ForeverDuration,
                 OverlayFile = overlayFileName,
                 OverlayWidth = overlay?.Width,
                 OverlayHeight = overlay?.Height,
@@ -573,7 +740,7 @@ namespace InviteBot {
 
         // Highest schema version this build can read. Anything newer is rejected so a future
         // export shape cannot be silently truncated by an older bot.
-        private const int GuildExportMaxVersion = 3;
+        private const int GuildExportMaxVersion = 4;
 
         private static async Task HandleImport(SocketSlashCommand command, GuildContext ctx, SocketTextChannel channel, SocketSlashCommandDataOption sub, SocketGuildUser user, bool isAdmin) {
             if (!isAdmin) {
@@ -662,6 +829,13 @@ namespace InviteBot {
             // the schema column DEFAULT and the GuildContext field initialiser, so an old
             // backup restored on a v3 build behaves identically to a fresh install.
             ctx.WelcomeNewMembers = export.WelcomeNewMembers ?? true;
+            // v4 added the per-guild defaults overrides. Null (whether "field absent in older
+            // backup" or "explicitly inherits the bot-wide value") restores as null, which is
+            // exactly the behaviour we want on either a v1/v2/v3 backup or a v4 backup from a
+            // guild that was inheriting at export time.
+            ctx.DefaultDuration = export.DefaultDuration;
+            ctx.DefaultUses = export.DefaultUses;
+            ctx.ForeverDuration = export.ForeverDuration;
             await SaveGuildAsync(ctx);
             // If the import changed the redirect domain, the periodic health monitor's last
             // verdict was about a different target; drop it so the next probe records fresh
@@ -731,7 +905,15 @@ namespace InviteBot {
             statusMessage += $"The channel \"{channel.Name}\" (ID {channel.Id}) is being used for logging.\n";
             statusMessage += $"The role {userRoleDescription} can use this bot.\n";
             statusMessage += $"The role \"{adminRoleName}\" (ID {ctx.AdminRole}) can administer this bot.\n";
-            statusMessage += $"Generated invites will have a duration of {defaultDuration} minutes, and can be used {defaultUses} time(s).\n";
+            int effDuration = EffectiveDefaultDuration(ctx);
+            int effUses = EffectiveDefaultUses(ctx);
+            int effForever = EffectiveForeverDuration(ctx);
+            string durationSource = ctx.DefaultDuration.HasValue ? "per-server" : "inherited";
+            string usesSource = ctx.DefaultUses.HasValue ? "per-server" : "inherited";
+            string foreverSource = ctx.ForeverDuration.HasValue ? "per-server" : "inherited";
+            string foreverLabel = effForever == 0 ? "no cap" : $"{effForever} minute(s)";
+            statusMessage += $"Generated invites will have a duration of {effDuration} minute(s) ({durationSource}), and can be used {effUses} time(s) ({usesSource}).\n";
+            statusMessage += $"Maximum allowed invite duration: {foreverLabel} ({foreverSource}).\n";
             statusMessage += string.IsNullOrEmpty(ctx.Domain)
                 ? "Redirect domain: <not set> - run `/invite admin domain` before creating invites.\n"
                 : $"Generated invites will use the domain {ctx.Domain}.\n";

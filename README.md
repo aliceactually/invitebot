@@ -93,9 +93,9 @@ Copy `config.json.sample` to `config.json` and fill in at minimum:
 | ------------------- | ---------------------------------------------------------------------- |
 | `discord.token`     | Bot token (treat as a secret — `config.json` is gitignored)            |
 | `cleanupTimer`      | Cleanup interval in minutes                                            |
-| `defaultDuration`   | Default invite duration in minutes (0–1440; 0 = "forever")             |
+| `defaultDuration`   | Default invite duration in minutes (0 = "forever"; max is `foreverDuration`) |
 | `defaultUses`       | Default invite use count (0 = unlimited)                               |
-| `foreverDuration`   | Days assigned to "forever" invites in the DB (0 = never)               |
+| `foreverDuration`   | Minutes assigned to "forever" invites in the DB (0 = never expires); also the upper bound for `/invite create` and `defaultDuration` |
 | `database`          | SQLite file path (relative paths sit beside the executable)            |
 | `overlayDirectory`  | Directory holding per-guild overlay PNGs (relative to the executable)  |
 | `fallbackDomain`    | Universal redirect domain used when a guild's per-guild domain is unreachable. Defaults to `discord.gg` because every Discord invite code natively works as `discord.gg/<code>`, so a fallback is guaranteed to land. Lives here (not per-guild) on purpose: if Discord ever changes this, you update one file instead of pinging every guild owner. |
@@ -113,6 +113,12 @@ per-guild config in `config.json`. The full set is:
 - overlay PNG (`/invite admin overlay`)
 - `paused` and `debug` flags (`/invite admin pause`, `/invite admin debug`)
 - auto-welcome toggle (`/invite admin welcome`)
+- per-server overrides for `defaultDuration`, `defaultUses`, and
+  `foreverDuration` (`/invite admin defaultduration`,
+  `/invite admin defaultuses`, `/invite admin foreverduration`).
+  Pass `value:-1` to clear the override and re-inherit the bot-wide value
+  from `config.json`. Per-server `defaultDuration` is capped by the
+  effective `foreverDuration`, the same way `/invite create duration` is.
 
 Everything except the overlay file itself is captured by `/invite admin
 export`; the overlay PNG is bundled into the same response as a separate

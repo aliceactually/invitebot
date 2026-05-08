@@ -10,7 +10,7 @@ namespace InviteBot {
         // ApplyMigrations below. The version is stored in SQLite's built-in PRAGMA user_version,
         // which is a 32-bit integer that travels with the database file. A DB stamped with a
         // version higher than this constant is rejected at startup rather than risk corruption.
-        private const int CurrentSchemaVersion = 3;
+        private const int CurrentSchemaVersion = 4;
 
         // Opens (or creates) the SQLite database and runs schema migrations.
         // Throws on failure so Main can log and exit cleanly.
@@ -64,8 +64,9 @@ namespace InviteBot {
                 if (fromVersion < 1) { Migrate_0_to_1(tx); }
                 if (fromVersion < 2) { Migrate_1_to_2(tx); }
                 if (fromVersion < 3) { Migrate_2_to_3(tx); }
+                if (fromVersion < 4) { Migrate_3_to_4(tx); }
                 // Future migrations:
-                // if (fromVersion < 4) { Migrate_3_to_4(tx); }
+                // if (fromVersion < 5) { Migrate_4_to_5(tx); }
 
                 tx.Commit();
             } catch {
@@ -155,12 +156,34 @@ namespace InviteBot {
             }
         }
 
+        // v3 -> v4: per-guild overrides for the previously-bot-wide defaultDuration,
+        // defaultUses, and foreverDuration knobs. All three are nullable - NULL means
+        // "inherit the value from config.json", which is the right default for any guild
+        // that hasn't explicitly opted into a different policy. Kept as separate columns
+        // (rather than a single JSON blob) so PRAGMA table_info works as the migration
+        // probe and so a sysadmin reading the DB by hand sees them clearly.
+        private static void Migrate_3_to_4(SqliteTransaction tx) {
+            HashSet<string> existing = new(StringComparer.Ordinal);
+            using (SqliteCommand probe = new("PRAGMA table_info(guild_settings);", db, tx))
+            using (SqliteDataReader r = probe.ExecuteReader()) {
+                while (r.Read()) { existing.Add(r.GetString(1)); }
+            }
+            void AddIfMissing(string name, string type) {
+                if (existing.Contains(name)) { return; }
+                using SqliteCommand alter = new($"ALTER TABLE guild_settings ADD COLUMN {name} {type};", db, tx);
+                alter.ExecuteNonQuery();
+            }
+            AddIfMissing("DefaultDuration", "INTEGER");
+            AddIfMissing("DefaultUses", "INTEGER");
+            AddIfMissing("ForeverDuration", "INTEGER");
+        }
+
         // Loads any previously-known guilds from the DB so we survive restarts cleanly.
         private static async Task HydrateGuildsAsync() {
             if (db is null) { return; }
             await dbLock.WaitAsync();
             try {
-                using SqliteCommand loadCmd = new("SELECT GuildId, ChannelId, AdminRole, UserRole, Paused, Debug, PrintLongEdgeMm, Domain, WelcomeNewMembers FROM guild_settings;", db);
+                using SqliteCommand loadCmd = new("SELECT GuildId, ChannelId, AdminRole, UserRole, Paused, Debug, PrintLongEdgeMm, Domain, WelcomeNewMembers, DefaultDuration, DefaultUses, ForeverDuration FROM guild_settings;", db);
                 using SqliteDataReader reader = loadCmd.ExecuteReader();
                 while (reader.Read()) {
                     GuildContext ctx = new() {
@@ -173,6 +196,9 @@ namespace InviteBot {
                         PrintLongEdgeMm = reader.IsDBNull(6) ? null : reader.GetDouble(6),
                         Domain = reader.IsDBNull(7) ? null : reader.GetString(7),
                         WelcomeNewMembers = reader.GetInt32(8) != 0,
+                        DefaultDuration = reader.IsDBNull(9) ? null : reader.GetInt32(9),
+                        DefaultUses = reader.IsDBNull(10) ? null : reader.GetInt32(10),
+                        ForeverDuration = reader.IsDBNull(11) ? null : reader.GetInt32(11),
                     };
                     guilds[ctx.GuildId] = ctx;
                 }
@@ -218,7 +244,8 @@ namespace InviteBot {
             try {
                 using SqliteCommand cmd = new(
                     @"UPDATE guild_settings
-                      SET ChannelId = @ch, AdminRole = @ar, UserRole = @ur, Paused = @p, Debug = @d, PrintLongEdgeMm = @print, Domain = @domain, WelcomeNewMembers = @welcome
+                      SET ChannelId = @ch, AdminRole = @ar, UserRole = @ur, Paused = @p, Debug = @d, PrintLongEdgeMm = @print, Domain = @domain, WelcomeNewMembers = @welcome,
+                          DefaultDuration = @dd, DefaultUses = @du, ForeverDuration = @fd
                       WHERE GuildId = @id;", db);
                 cmd.Parameters.AddWithValue("@id", (long)ctx.GuildId);
                 cmd.Parameters.AddWithValue("@ch", (long)ctx.ChannelId);
@@ -229,6 +256,9 @@ namespace InviteBot {
                 cmd.Parameters.AddWithValue("@print", ctx.PrintLongEdgeMm.HasValue ? ctx.PrintLongEdgeMm.Value : DBNull.Value);
                 cmd.Parameters.AddWithValue("@domain", string.IsNullOrEmpty(ctx.Domain) ? DBNull.Value : (object)ctx.Domain);
                 cmd.Parameters.AddWithValue("@welcome", ctx.WelcomeNewMembers ? 1 : 0);
+                cmd.Parameters.AddWithValue("@dd", ctx.DefaultDuration.HasValue ? ctx.DefaultDuration.Value : DBNull.Value);
+                cmd.Parameters.AddWithValue("@du", ctx.DefaultUses.HasValue ? ctx.DefaultUses.Value : DBNull.Value);
+                cmd.Parameters.AddWithValue("@fd", ctx.ForeverDuration.HasValue ? ctx.ForeverDuration.Value : DBNull.Value);
                 cmd.ExecuteNonQuery();
             } finally { dbLock.Release(); }
         }
