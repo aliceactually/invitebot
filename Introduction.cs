@@ -57,7 +57,7 @@ namespace InviteBot {
                     "URLs (e.g. `invite.example.com`). Pass `clear` to unset. The bot probes the new domain " +
                     "over HTTPS immediately.\n" +
                     "- `/invite admin overlay image` - uploads (or replaces) the PNG composited behind the " +
-                    "QR. 256\u20134096 px per side, \u2264 4 MB. Normalised to 300 DPI on upload.\n" +
+                    $"QR. {OverlayMinDimension}\u2013{OverlayMaxDimension} px per side (up to {OverlayMaxBytes / (1024 * 1024)} MB). Normalised to 300 DPI on upload.\n" +
                     "- `/invite admin print size` - sets the default long-edge print size for invite images " +
                     "(e.g. `90mm`, `9cm`, `3.5in`). Pass `clear` to remove the default.\n" +
                     "- `/invite admin status` - current configuration, plus a live HTTPS probe of the " +

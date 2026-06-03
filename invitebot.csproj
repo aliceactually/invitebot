@@ -6,7 +6,7 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <Title>InviteBot</Title>
-    <Version>1.0.1</Version>
+    <Version>1.0.2</Version>
     <RuntimeIdentifiers>win-x64;win-arm64;osx-x64;osx-arm64;linux-x64;linux-arm64</RuntimeIdentifiers>
   </PropertyGroup>
 
@@ -63,8 +63,8 @@
 
   <ItemGroup>
     <PackageReference Include="Discord.Net" Version="3.19.1" />
-    <PackageReference Include="Magick.NET-Q8-AnyCPU" Version="14.13.0" />
-    <PackageReference Include="Microsoft.Data.Sqlite" Version="10.0.7" />
+    <PackageReference Include="Magick.NET-Q8-AnyCPU" Version="14.13.1" />
+    <PackageReference Include="Microsoft.Data.Sqlite" Version="10.0.8" />
     <PackageReference Include="ZXing.Net" Version="0.16.11" />
   </ItemGroup>
 

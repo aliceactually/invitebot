@@ -129,8 +129,10 @@ attachment.
 Uploaded overlays must be:
 
 - **PNG**, with at least one alpha channel area to leave room for the QR.
-- **256–4096 px** on each side.
-- **≤ 4 MB** in size.
+- **256–4096 px** on each side. This resolution cap is the real constraint;
+  anything within it is accepted regardless of file size.
+- **≤ 32 MB** in size — a generous backstop that any in-resolution overlay
+  comfortably clears.
 
 On upload the bot normalises the image to **300 DPI** (resampling with
 Lanczos if the source density is set and differs from 300, or stamping the

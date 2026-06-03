@@ -1,5 +1,52 @@
 # Changelog
 
+## v1.0.2 — 03 Jun 2026
+
+Bug-fix and hardening release. No new user-facing commands; existing
+behaviour is made more robust and a couple of rendering bugs are fixed.
+
+### Fixed
+- **Overlay covered the entire QR.** Overlays were composited at native size
+  over a same-sized canvas, blanketing the whole code and destroying
+  scannability. Overlays are now scaled to a centred badge (≤ 30% of the
+  QR's short edge, aspect-ratio preserved, never upscaled) before
+  compositing, so only the centre is obscured — comfortably inside the
+  level-H error-correction budget. Sizing maths lives in the new pure
+  `OverlayLayout` helper with xUnit coverage.
+- **Font failures crashed every `/invite create`.** A missing caption font
+  on the host (e.g. no fontconfig / no `mscorefonts` on Linux) threw out of
+  the render and left the user staring at "Rendering QR code…" forever. The
+  font is now probed once at startup and the bot refuses to start with an
+  actionable message if it cannot be loaded, and the slash-command handler
+  has a top-level safety net that surfaces any unhandled error to the user
+  instead of hanging the interaction.
+- **Stale dev-guild commands lingered.** Changing or clearing `devGuild`
+  left the previous guild's slash commands registered forever. Startup now
+  records the last dev guild in a new `bot_state` table and clears the
+  stale guild-scoped command set when it changes.
+- **Invite caption date/time format.** The baked-in expiry caption now
+  renders as `07 MAY 2026 0616 UTC` (uppercase invariant month, 24-hour
+  time with no separator) instead of a locale-dependent short date/time.
+
+### Changed
+- Overlay uploads are now gated by **resolution, not file size**. The
+  256–4096 px-per-side limit is unchanged and remains the real constraint;
+  any overlay within it is accepted regardless of byte size. The byte cap
+  is raised from **4 MB to 32 MB** and demoted to a backstop against
+  pathological uploads. The `/invite admin overlay` help text now derives
+  its quoted limits from the constants so it can no longer drift.
+- `devGuild` is now validated at config load: an implausibly small non-zero
+  id (a likely typo) is rejected at startup rather than silently doing
+  nothing, and the "bot is not a member of that guild" warning now spells
+  out how to fix it.
+- Dependencies bumped: `Magick.NET-Q8-AnyCPU` 14.13.0 → 14.13.1 and
+  `Microsoft.Data.Sqlite` 10.0.7 → 10.0.8 (routine patch updates).
+
+### Schema
+- DB schema bumped to **v5**. New `bot_state` key/value table for bot-wide
+  bookkeeping (currently the last-registered `devGuild`). Migration is
+  additive; v1.0.2 is a drop-in upgrade from v1.0.1 with no manual steps.
+
 ## v1.0.1 — 07 May 2026
 
 Adds the introduction system: a single `/invite admin introduce` command

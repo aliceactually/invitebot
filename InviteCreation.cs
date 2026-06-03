@@ -258,6 +258,15 @@ namespace InviteBot {
             using MagickImage output = new(b, new PixelReadSettings(outWidth, outHeight, StorageType.Char, PixelMapping.BGRA));
             output.Composite(qr, Gravity.Center, CompositeOperator.Over);
             using (MagickImage perCallOverlay = new(overlay.Bytes)) {
+                // The overlay is a human-readable badge that sits in the CENTRE of the QR; it
+                // must not blanket the whole code. Scale it down so it fits inside the central
+                // budget box, well within what level-H error correction can recover, then
+                // composite it centred. OverlayLayout owns the (testable) sizing math.
+                OverlayLayout.OverlaySize badge = OverlayLayout.Compute(dim, perCallOverlay.Width, perCallOverlay.Height);
+                if (badge.NeedsResize) {
+                    perCallOverlay.FilterType = FilterType.Lanczos;
+                    perCallOverlay.Resize(badge.Width, badge.Height);
+                }
                 output.Composite(perCallOverlay, Gravity.Center, CompositeOperator.Over);
             }
 

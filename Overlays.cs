@@ -18,7 +18,11 @@ namespace InviteBot {
         // a designer would produce; tight enough to keep memory and decode time bounded.
         private const int OverlayMinDimension = 256;
         private const int OverlayMaxDimension = 4096;
-        private const int OverlayMaxBytes = 4 * 1024 * 1024;
+        // The resolution cap above is the real gate: a 4096x4096 image bounds decode time and
+        // memory regardless of how the bytes compress. The byte cap exists only as a backstop
+        // against a pathological upload (e.g. a maliciously incompressible 4K PNG), so it is set
+        // generously - any genuine overlay that fits the pixel limits will sail under it.
+        private const int OverlayMaxBytes = 32 * 1024 * 1024;
 
         // All stored overlays are normalised to this density. Doing the resample once at upload
         // time means render-time print-size maths is unambiguous and every guild's file is in the
